@@ -1,9 +1,9 @@
 """Synthetic 30-day arrival scenario generator skeleton.
 
 The latent expected-arrival path represents escalation and stabilisation over
-time. The variability mechanism represents stochastic day-to-day uncertainty
-around that path; greater dispersion is not treated as solving the
-changing-intensity problem.
+time. The Poisson-lognormal variability mechanism represents stochastic
+day-to-day uncertainty around that path; additional volatility is not treated
+as solving the changing-intensity problem.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class PhaseConfig:
     expected_start: float
     expected_end: float
     variability_state: str
-    dispersion: float
+    lognormal_sigma: float
 
     def __post_init__(self) -> None:
         if self.start_day < 1:
@@ -34,8 +34,8 @@ class PhaseConfig:
             raise ValueError("end_day must be greater than or equal to start_day.")
         if self.expected_start <= 0 or self.expected_end <= 0:
             raise ValueError("expected arrivals must be positive.")
-        if self.dispersion <= 0:
-            raise ValueError("dispersion must be positive.")
+        if self.lognormal_sigma < 0:
+            raise ValueError("lognormal_sigma must be non-negative.")
 
 
 def default_phase_config() -> tuple[PhaseConfig, ...]:
@@ -49,7 +49,7 @@ def default_phase_config() -> tuple[PhaseConfig, ...]:
             expected_start=35.0,
             expected_end=65.0,
             variability_state="moderate",
-            dispersion=0.18,
+            lognormal_sigma=0.18,
         ),
         PhaseConfig(
             label="surge_becomes_apparent",
@@ -58,7 +58,7 @@ def default_phase_config() -> tuple[PhaseConfig, ...]:
             expected_start=75.0,
             expected_end=170.0,
             variability_state="rising",
-            dispersion=0.24,
+            lognormal_sigma=0.24,
         ),
         PhaseConfig(
             label="volatile_high_pressure",
@@ -67,7 +67,7 @@ def default_phase_config() -> tuple[PhaseConfig, ...]:
             expected_start=150.0,
             expected_end=230.0,
             variability_state="high",
-            dispersion=0.32,
+            lognormal_sigma=0.32,
         ),
         PhaseConfig(
             label="updated_planning_period",
@@ -76,7 +76,7 @@ def default_phase_config() -> tuple[PhaseConfig, ...]:
             expected_start=175.0,
             expected_end=130.0,
             variability_state="moderating",
-            dispersion=0.22,
+            lognormal_sigma=0.22,
         ),
         PhaseConfig(
             label="partial_stabilisation",
@@ -85,7 +85,7 @@ def default_phase_config() -> tuple[PhaseConfig, ...]:
             expected_start=125.0,
             expected_end=95.0,
             variability_state="lower",
-            dispersion=0.16,
+            lognormal_sigma=0.16,
         ),
     )
 
@@ -113,7 +113,7 @@ def expected_arrival_path(
                     "phase": phase.label,
                     "latent_expected_arrivals": float(expected),
                     "latent_variability_state": phase.variability_state,
-                    "_dispersion": phase.dispersion,
+                    "_lognormal_sigma": phase.lognormal_sigma,
                 }
             )
 
@@ -130,12 +130,13 @@ def generate_candidate(
 
     Pass either ``seed`` or ``rng`` for deterministic reproducibility. The
     latent expected path controls escalation and stabilisation; phase-specific
-    dispersion controls stochastic uncertainty around that path.
+    ``lognormal_sigma`` controls mean-preserving multiplicative volatility
+    around that path before a Poisson count draw.
 
-    The rounded normal draw is provisional for this skeleton stage and is
-    subject to calibration review. It is not the final modelling choice and is
-    not a claim about the later reader-facing Poisson versus Negative Binomial
-    forecasts.
+    This synthetic-data mechanism keeps changing intensity separate from
+    additional day-to-day volatility. It is not a claim that extra variability,
+    or the later reader-facing Negative Binomial comparison, solves a
+    trend/change-in-level forecasting problem.
     """
 
     if seed is not None and rng is not None:
@@ -144,14 +145,18 @@ def generate_candidate(
     active_rng = rng if rng is not None else np.random.default_rng(seed)
     path = expected_arrival_path(phases)
     arrivals = [
-        _draw_arrival(expected=float(expected), dispersion=float(dispersion), rng=active_rng)
-        for expected, dispersion in zip(
+        _draw_arrival(
+            expected=float(expected),
+            lognormal_sigma=float(lognormal_sigma),
+            rng=active_rng,
+        )
+        for expected, lognormal_sigma in zip(
             path["latent_expected_arrivals"],
-            path["_dispersion"],
+            path["_lognormal_sigma"],
         )
     ]
 
-    candidate = path.drop(columns=["_dispersion"]).copy()
+    candidate = path.drop(columns=["_lognormal_sigma"]).copy()
     candidate.insert(1, "arrivals", pd.Series(arrivals, dtype="int64"))
     return candidate
 
@@ -159,14 +164,19 @@ def generate_candidate(
 def _draw_arrival(
     *,
     expected: float,
-    dispersion: float,
+    lognormal_sigma: float,
     rng: np.random.Generator,
 ) -> int:
-    """Draw one non-negative integer arrival count around a latent mean."""
+    """Draw one count from a mean-preserving Poisson-lognormal mechanism.
 
-    standard_deviation = max(expected * dispersion, 1.0)
-    draw = rng.normal(loc=expected, scale=standard_deviation)
-    return max(0, int(round(draw)))
+    ``lognormal_sigma`` controls additional multiplicative volatility around
+    the latent expected-arrival path. When it is zero, the daily rate remains
+    equal to ``expected`` and arrivals are ordinary Poisson count variation.
+    """
+
+    shock = rng.lognormal(mean=-0.5 * lognormal_sigma**2, sigma=lognormal_sigma)
+    realised_rate = expected * shock
+    return int(rng.poisson(lam=realised_rate))
 
 
 def _validate_phase_coverage(phases: tuple[PhaseConfig, ...]) -> None:

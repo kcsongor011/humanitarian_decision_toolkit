@@ -12,6 +12,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from simulation.arrival_dynamics import (  # noqa: E402
+    PhaseConfig,
     default_phase_config,
     expected_arrival_path,
     generate_candidate,
@@ -56,12 +57,47 @@ def test_expected_arrival_path_rejects_empty_phase_iterable():
         expected_arrival_path([])
 
 
+def test_phase_config_rejects_negative_lognormal_sigma():
+    with pytest.raises(ValueError, match="lognormal_sigma must be non-negative"):
+        PhaseConfig(
+            label="invalid",
+            start_day=1,
+            end_day=30,
+            expected_start=50.0,
+            expected_end=100.0,
+            variability_state="invalid",
+            lognormal_sigma=-0.01,
+        )
+
+
+def test_zero_lognormal_sigma_can_generate_valid_candidate():
+    phases = (
+        PhaseConfig(
+            label="poisson_only",
+            start_day=1,
+            end_day=30,
+            expected_start=50.0,
+            expected_end=100.0,
+            variability_state="none",
+            lognormal_sigma=0.0,
+        ),
+    )
+
+    candidate = generate_candidate(seed=42, phases=phases)
+
+    assert len(candidate) == 30
+    assert pd.api.types.is_integer_dtype(candidate["arrivals"])
+    assert (candidate["arrivals"] >= 0).all()
+
+
 def test_generate_candidate_has_required_schema_and_day_coverage():
     candidate = generate_candidate(seed=42)
 
     assert REQUIRED_COLUMNS.issubset(candidate.columns)
     assert len(candidate) == 30
     assert list(candidate["day"]) == list(range(1, 31))
+    assert "lognormal_sigma" not in candidate.columns
+    assert "_lognormal_sigma" not in candidate.columns
 
 
 def test_generate_candidate_arrivals_are_non_negative_integers():
