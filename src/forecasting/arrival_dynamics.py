@@ -6,6 +6,8 @@ synthetic scenario generator or use latent generator fields.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -38,6 +40,13 @@ NEGATIVE_BINOMIAL_SIMULATION_COLUMNS = UPDATED_SIMULATION_COLUMNS + [
     "negative_binomial_p",
 ]
 
+CAUTIOUS_NEGATIVE_BINOMIAL_SIMULATION_COLUMNS = NEGATIVE_BINOMIAL_SIMULATION_COLUMNS + [
+    "variance_rule",
+    "recent_sample_sd",
+    "sd_floor",
+    "assumed_daily_sd",
+]
+
 SUMMARY_COLUMNS = [
     "statistic",
     "value",
@@ -56,6 +65,40 @@ MODEL_SUMMARY_COLUMNS = [
     "model",
     "statistic",
     "value",
+]
+
+CAUTIOUS_ARRIVAL_LEVEL_COLUMNS = [
+    "observed_start_day",
+    "observed_end_day",
+    "observed_days",
+    "updated_daily_arrival_level",
+    "recent_sample_sd",
+    "sd_floor_fraction",
+    "sd_floor",
+    "assumed_daily_sd",
+    "assumed_daily_variance",
+    "variance_rule",
+]
+
+PREPAREDNESS_SUMMARY_COLUMNS = [
+    "model",
+    "forecast_reference",
+    "forecast_total_arrivals",
+]
+
+PREPAREDNESS_COLUMNS = [
+    "model",
+    "forecast_reference",
+    "forecast_total_arrivals",
+    "forecast_horizon_days",
+    "average_daily_arrivals",
+    "immediate_water_litres",
+    "immediate_food_units",
+    "protection_contacts",
+    "protection_staff_days",
+    "registration_workload",
+    "medical_teams_per_day",
+    "medical_team_days",
 ]
 
 
@@ -290,6 +333,106 @@ def simulate_updated_negative_binomial_forecast(
     )
 
 
+def estimate_cautious_arrival_level(
+    observed: pd.DataFrame,
+    *,
+    observed_start_day: int,
+    observed_end_day: int,
+    sd_floor_fraction: float = 0.25,
+) -> pd.DataFrame:
+    """Estimate an updated level with a cautious standard-deviation floor."""
+
+    if sd_floor_fraction < 0:
+        raise ValueError("sd_floor_fraction must be non-negative.")
+
+    stats = _recent_arrival_stats(
+        observed,
+        observed_start_day=observed_start_day,
+        observed_end_day=observed_end_day,
+    )
+    daily_mean = float(stats["updated_daily_arrival_level"])
+    recent_sample_sd = float(stats["observed_sample_variance"]) ** 0.5
+    sd_floor = sd_floor_fraction * daily_mean
+    assumed_daily_sd = max(recent_sample_sd, sd_floor)
+    assumed_daily_variance = assumed_daily_sd**2
+    _negative_binomial_parameters(
+        mean=daily_mean,
+        variance=assumed_daily_variance,
+    )
+
+    row = {
+        "observed_start_day": stats["observed_start_day"],
+        "observed_end_day": stats["observed_end_day"],
+        "observed_days": stats["observed_days"],
+        "updated_daily_arrival_level": daily_mean,
+        "recent_sample_sd": recent_sample_sd,
+        "sd_floor_fraction": sd_floor_fraction,
+        "sd_floor": sd_floor,
+        "assumed_daily_sd": assumed_daily_sd,
+        "assumed_daily_variance": assumed_daily_variance,
+        "variance_rule": "max_recent_sample_sd_or_fraction_of_mean",
+    }
+
+    return pd.DataFrame([row], columns=CAUTIOUS_ARRIVAL_LEVEL_COLUMNS)
+
+
+def simulate_cautious_negative_binomial_forecast(
+    observed: pd.DataFrame,
+    *,
+    observed_start_day: int,
+    observed_end_day: int,
+    forecast_start_day: int,
+    forecast_end_day: int,
+    n_simulations: int = 10_000,
+    seed: int | None = None,
+    rng: np.random.Generator | None = None,
+    sd_floor_fraction: float = 0.25,
+) -> pd.DataFrame:
+    """Simulate a cautious overdispersed forecast for an arbitrary horizon."""
+
+    active_rng = _simulation_rng(seed=seed, rng=rng, n_simulations=n_simulations)
+    level = estimate_cautious_arrival_level(
+        observed,
+        observed_start_day=observed_start_day,
+        observed_end_day=observed_end_day,
+        sd_floor_fraction=sd_floor_fraction,
+    ).iloc[0]
+    forecast_days = _forecast_days(
+        forecast_start_day=forecast_start_day,
+        forecast_end_day=forecast_end_day,
+    )
+
+    daily_mean = float(level["updated_daily_arrival_level"])
+    daily_variance = float(level["assumed_daily_variance"])
+    n, p = _negative_binomial_parameters(mean=daily_mean, variance=daily_variance)
+    draws = active_rng.negative_binomial(
+        n=n,
+        p=p,
+        size=(n_simulations, len(forecast_days)),
+    )
+
+    return pd.DataFrame(
+        {
+            "model": "cautious_negative_binomial_updated_level",
+            "simulation_id": np.repeat(
+                np.arange(1, n_simulations + 1),
+                len(forecast_days),
+            ),
+            "day": np.tile(forecast_days, n_simulations),
+            "simulated_arrivals": draws.reshape(-1),
+            "assumed_daily_mean": daily_mean,
+            "assumed_daily_variance": daily_variance,
+            "negative_binomial_n": n,
+            "negative_binomial_p": p,
+            "variance_rule": level["variance_rule"],
+            "recent_sample_sd": float(level["recent_sample_sd"]),
+            "sd_floor": float(level["sd_floor"]),
+            "assumed_daily_sd": float(level["assumed_daily_sd"]),
+        },
+        columns=CAUTIOUS_NEGATIVE_BINOMIAL_SIMULATION_COLUMNS,
+    )
+
+
 def summarize_forecast_totals_by_model(
     simulations: pd.DataFrame,
     *,
@@ -325,6 +468,99 @@ def summarize_forecast_totals_by_model(
             )
 
     return pd.DataFrame(rows, columns=MODEL_SUMMARY_COLUMNS)
+
+
+def summarize_preparedness_forecast_totals(
+    simulations: pd.DataFrame,
+    *,
+    percentiles: tuple[float, ...] = (50, 80, 95),
+) -> pd.DataFrame:
+    """Summarise forecast totals for direct preparedness translation."""
+
+    _validate_model_simulations(simulations)
+    totals = (
+        simulations.groupby(["model", "simulation_id"])["simulated_arrivals"]
+        .sum()
+        .reset_index(name="simulated_total_arrivals")
+    )
+
+    rows = []
+    for model, model_totals in totals.groupby("model", sort=False):
+        values = model_totals["simulated_total_arrivals"]
+        for percentile in percentiles:
+            rows.append(
+                {
+                    "model": model,
+                    "forecast_reference": _percentile_label(percentile),
+                    "forecast_total_arrivals": float(
+                        np.percentile(values, percentile)
+                    ),
+                }
+            )
+
+    return pd.DataFrame(rows, columns=PREPAREDNESS_SUMMARY_COLUMNS)
+
+
+def translate_arrival_totals_to_preparedness(
+    forecast_totals: pd.DataFrame,
+    *,
+    forecast_horizon_days: int,
+    water_litres_per_arrival: float = 3,
+    food_units_per_arrival: float = 1,
+    protection_contacts_per_arrival: float = 1,
+    protection_contacts_per_staff_day: int = 60,
+    registrations_per_arrival: float = 1,
+    medical_team_arrivals_per_day: int = 250,
+    minimum_medical_teams: int = 1,
+) -> pd.DataFrame:
+    """Translate arrival-total percentiles into illustrative preparedness needs."""
+
+    _validate_preparedness_assumptions(
+        forecast_horizon_days=forecast_horizon_days,
+        water_litres_per_arrival=water_litres_per_arrival,
+        food_units_per_arrival=food_units_per_arrival,
+        protection_contacts_per_arrival=protection_contacts_per_arrival,
+        protection_contacts_per_staff_day=protection_contacts_per_staff_day,
+        registrations_per_arrival=registrations_per_arrival,
+        medical_team_arrivals_per_day=medical_team_arrivals_per_day,
+        minimum_medical_teams=minimum_medical_teams,
+    )
+    _validate_preparedness_summary(forecast_totals)
+
+    rows = []
+    for row in forecast_totals.itertuples(index=False):
+        forecast_total = float(row.forecast_total_arrivals)
+        average_daily_arrivals = forecast_total / forecast_horizon_days
+        water_litres = forecast_total * water_litres_per_arrival
+        food_units = forecast_total * food_units_per_arrival
+        protection_contacts = forecast_total * protection_contacts_per_arrival
+        protection_staff_days = math.ceil(
+            protection_contacts / protection_contacts_per_staff_day
+        )
+        registration_workload = forecast_total * registrations_per_arrival
+        medical_teams_per_day = max(
+            minimum_medical_teams,
+            math.ceil(average_daily_arrivals / medical_team_arrivals_per_day),
+        )
+
+        rows.append(
+            {
+                "model": row.model,
+                "forecast_reference": row.forecast_reference,
+                "forecast_total_arrivals": forecast_total,
+                "forecast_horizon_days": forecast_horizon_days,
+                "average_daily_arrivals": average_daily_arrivals,
+                "immediate_water_litres": water_litres,
+                "immediate_food_units": food_units,
+                "protection_contacts": protection_contacts,
+                "protection_staff_days": protection_staff_days,
+                "registration_workload": registration_workload,
+                "medical_teams_per_day": medical_teams_per_day,
+                "medical_team_days": forecast_horizon_days * medical_teams_per_day,
+            }
+        )
+
+    return pd.DataFrame(rows, columns=PREPAREDNESS_COLUMNS)
 
 
 def _observed_window_arrivals(
@@ -450,6 +686,56 @@ def _validate_model_simulations(simulations: pd.DataFrame) -> None:
     _validate_simulations(simulations)
     if "model" not in simulations.columns:
         raise ValueError("Simulations are missing required columns: model.")
+
+
+def _validate_preparedness_summary(forecast_totals: pd.DataFrame) -> None:
+    required_columns = {
+        "model",
+        "forecast_reference",
+        "forecast_total_arrivals",
+    }
+    missing_columns = required_columns.difference(forecast_totals.columns)
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise ValueError(f"Forecast totals are missing required columns: {missing}.")
+    if forecast_totals.empty:
+        raise ValueError("Forecast totals must not be empty.")
+    if (forecast_totals["forecast_total_arrivals"] < 0).any():
+        raise ValueError("Forecast total arrivals must be non-negative.")
+
+
+def _validate_preparedness_assumptions(
+    *,
+    forecast_horizon_days: int,
+    water_litres_per_arrival: float,
+    food_units_per_arrival: float,
+    protection_contacts_per_arrival: float,
+    protection_contacts_per_staff_day: int,
+    registrations_per_arrival: float,
+    medical_team_arrivals_per_day: int,
+    minimum_medical_teams: int,
+) -> None:
+    if forecast_horizon_days <= 0:
+        raise ValueError("forecast_horizon_days must be positive.")
+
+    non_negative_parameters = {
+        "water_litres_per_arrival": water_litres_per_arrival,
+        "food_units_per_arrival": food_units_per_arrival,
+        "protection_contacts_per_arrival": protection_contacts_per_arrival,
+        "registrations_per_arrival": registrations_per_arrival,
+    }
+    for name, value in non_negative_parameters.items():
+        if value < 0:
+            raise ValueError(f"{name} must be non-negative.")
+
+    positive_parameters = {
+        "protection_contacts_per_staff_day": protection_contacts_per_staff_day,
+        "medical_team_arrivals_per_day": medical_team_arrivals_per_day,
+        "minimum_medical_teams": minimum_medical_teams,
+    }
+    for name, value in positive_parameters.items():
+        if value <= 0:
+            raise ValueError(f"{name} must be positive.")
 
 
 def _percentile_label(percentile: float) -> str:
