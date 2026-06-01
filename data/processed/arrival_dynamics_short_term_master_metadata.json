@@ -1,0 +1,71 @@
+{
+  "dataset_id": "arrival_dynamics_short_term_master",
+  "component": "Arrival Dynamics 1 - Short-Term Border Arrivals",
+  "status": "human_approved_canonical_synthetic_episode",
+  "selected_seed": 3660,
+  "synthetic": true,
+  "generator_function": "simulation.arrival_dynamics.generate_candidate",
+  "generator_mechanism": "poisson_lognormal_with_mean_preserving_multiplicative_shock",
+  "generator_source_commit": "31c7568c748da47b3e061477e10b52225a56c4e2",
+  "generator_parameters": {
+    "seed": 3660,
+    "phase_config": [
+      {
+        "label": "early_visible_escalation",
+        "start_day": 1,
+        "end_day": 5,
+        "expected_start": 35.0,
+        "expected_end": 65.0,
+        "variability_state": "moderate",
+        "lognormal_sigma": 0.18
+      },
+      {
+        "label": "surge_becomes_apparent",
+        "start_day": 6,
+        "end_day": 12,
+        "expected_start": 75.0,
+        "expected_end": 170.0,
+        "variability_state": "rising",
+        "lognormal_sigma": 0.24
+      },
+      {
+        "label": "volatile_high_pressure",
+        "start_day": 13,
+        "end_day": 18,
+        "expected_start": 150.0,
+        "expected_end": 230.0,
+        "variability_state": "high",
+        "lognormal_sigma": 0.32
+      },
+      {
+        "label": "updated_planning_period",
+        "start_day": 19,
+        "end_day": 23,
+        "expected_start": 175.0,
+        "expected_end": 130.0,
+        "variability_state": "moderating",
+        "lognormal_sigma": 0.22
+      },
+      {
+        "label": "partial_stabilisation",
+        "start_day": 24,
+        "end_day": 30,
+        "expected_start": 125.0,
+        "expected_end": 95.0,
+        "variability_state": "lower",
+        "lognormal_sigma": 0.16
+      }
+    ]
+  },
+  "n_days": 30,
+  "columns": [
+    "day",
+    "arrivals",
+    "phase",
+    "latent_expected_arrivals",
+    "latent_variability_state"
+  ],
+  "csv_sha256": "d9e245130ca65da0948e91e51286f629f8147afa3311f55b92b62f9926af6a55",
+  "selection_note": "This synthetic 30-day episode was selected after human review for pedagogical and operational coherence in the Arrival Dynamics 1 short-term border-arrivals component.",
+  "mechanism_note": "The latent expected-arrival path represents changing arrival intensity. Phase-specific Poisson-lognormal volatility represents additional daily variation around that path. The generator mechanism is not a claim that any later forecasting model is the true model."
+}
