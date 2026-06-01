@@ -12,8 +12,9 @@ Forecasting and simulation of refugee arrivals and operational flows under uncer
 
 Implemented:
 
-- [View notebook on GitHub](notebooks/forecasting/arrival_dynamics_1_short_term_border_arrivals.ipynb)
+- [View notebook source on GitHub](notebooks/forecasting/arrival_dynamics_1_short_term_border_arrivals.ipynb)
 - [Open in Colab](https://colab.research.google.com/github/kcsongor011/humanitarian_decision_toolkit/blob/main/notebooks/forecasting/arrival_dynamics_1_short_term_border_arrivals.ipynb)
+- [Preview with nbviewer](https://nbviewer.org/github/kcsongor011/humanitarian_decision_toolkit/blob/main/notebooks/forecasting/arrival_dynamics_1_short_term_border_arrivals.ipynb)
 
 This notebook follows a synthetic 30-day border-arrivals scenario through progressive reveal, short-term probabilistic forecasting, preparedness translation, registration-capacity analysis, backlog risk, and final operational synthesis.
 
