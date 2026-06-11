@@ -97,7 +97,8 @@ def test_canonical_metadata_has_reproducibility_fields():
 
 def test_canonical_csv_sha256_matches_metadata():
     metadata = _read_metadata()
-    csv_digest = hashlib.sha256(CANONICAL_CSV_PATH.read_bytes()).hexdigest()
+    csv_bytes = CANONICAL_CSV_PATH.read_bytes().replace(b"\r\n", b"\n")
+    csv_digest = hashlib.sha256(csv_bytes).hexdigest()
 
     assert csv_digest == metadata["csv_sha256"]
 
