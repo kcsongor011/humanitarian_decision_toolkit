@@ -19,17 +19,16 @@ This notebook follows a synthetic 30-day border-arrivals scenario through progre
 
 The notebook uses synthetic data and simplified assumptions. It is intended to demonstrate the decision logic, not to model a real emergency operation.
 
-### Version 2 — Country-level longer-term arrivals
+### Version 2 — Country-level longer-term asylum applications
 
-In development.
+Implemented:
 
-Planned focus:
+- [Open in Colab](https://colab.research.google.com/github/kcsongor011/humanitarian_decision_toolkit/blob/main/notebooks/forecasting/arrival_dynamics_2_long_term_country_level_arrivals.ipynb)
+- [View notebook source on GitHub](notebooks/forecasting/arrival_dynamics_2_long_term_country_level_arrivals.ipynb)
 
-- longer-term country-level arrival forecasting;
-- trend and seasonality;
-- scenario comparison;
-- uncertainty ranges over longer planning horizons;
-- links between arrival forecasts and country-level operational planning.
+This notebook uses monthly first-time asylum application data for Italy from Eurostat to demonstrate a longer-term country-level forecasting workflow. It covers exploratory time-series analysis, train/test evaluation, naive baselines, SARIMA model selection, a SARIMAX extension with descriptive event-period indicators, and a 12-month projection.
+
+The notebook uses a real administrative time series, but it is intended as a transparent modelling and decision-support demonstration rather than an operational forecast product. First-time asylum applications are administrative/legal events and should not be read as direct border-arrival or displacement-flow counts.
 
 ## Other planned components
 
@@ -60,6 +59,6 @@ GitHub’s notebook preview may fail for larger notebooks. For the most reliable
 
 ## Current status
 
-Version 1 of the Arrival Dynamics module is implemented and merged into `main`.
+Version 1 and Version 2 of the Arrival Dynamics module are implemented and linked above.
 
-Version 2 is in development and will focus on country-level longer-term arrival forecasting.
+Additional toolkit components are planned for population estimation under uncertainty and inference/explanation workflows.
