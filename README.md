@@ -28,7 +28,7 @@ Implemented:
 
 This notebook uses monthly first-time asylum application data for Italy from Eurostat to demonstrate a longer-term country-level forecasting workflow. It covers exploratory time-series analysis, train/test evaluation, naive baselines, SARIMA model selection, a SARIMAX extension with descriptive event-period indicators, and a 12-month projection.
 
-The notebook uses a real administrative time series, but it is intended as a transparent modelling and decision-support demonstration rather than an operational forecast product. First-time asylum applications are administrative/legal events and should not be read as direct border-arrival or displacement-flow counts.
+The notebook uses a real administrative time series, but it is intended as a transparent modelling and decision-support demonstration rather than an operational forecast product.
 
 ## Other planned components
 
